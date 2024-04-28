@@ -1,0 +1,107 @@
+#import libs
+import pandas as pd
+import os
+import datetime as dt
+import win32com.client
+import shutil
+
+    
+outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
+
+print (dt.datetime.now())
+
+# setup range for outlook to search emails (so we don't go through the entire inbox)
+lastHourDateTime = dt.datetime.now() - dt.timedelta(days = 1)
+lastHourDateTime  = lastHourDateTime.strftime('%m/%d/%Y %H:%M %p')
+
+# Select main Inbox
+#inbox = outlook.GetDefaultFolder(6)
+
+#Select main Inbox, look in subfolder "Current Stock"
+for stor in win32com.client.Dispatch("Outlook.Application").Session.Stores:
+    if stor.DisplayName == "email box name": 
+        inbox = outlook.Folders["email box name"].Folders["Inbox"].Folders["folder were emails come in"] #path will depand on your email box structure
+    elif stor.DisplayName == "name@domain": 
+        inbox = outlook.Folders["name@domain"].Folders["Inbox"].Folders["folder were emails come in"]
+
+print('Reading attachments from ', inbox, ' subfolder') 
+
+messages = inbox.Items
+
+# Only search emails in the time range above:
+messages = messages.Restrict("[ReceivedTime] >= '" + lastHourDateTime  +"'")
+
+# Download a select attachment ---------------------------------------
+# Create a folder to capture attachments.
+
+MyInfolder = "input folder path"
+if not os.path.exists(MyInfolder): os.makedirs(MyInfolder)
+MyOutfolder = "output folder path"
+if not os.path.exists(MyOutfolder): os.makedirs(MyOutfolder)
+try:
+    for message in list(messages):
+        try:
+            s = message.sender
+            s = str(s)
+            print('Sender:' , message.sender)
+            
+            for att in message.Attachments:
+                # Give each attachment a path and filename
+                if att.FileName == "file name.ASC":
+                    outfile_name1 = MyInfolder + att.FileName 
+                # save file 
+                    att.SaveASFile(outfile_name1)
+                    print('Saved file:', outfile_name1)
+                
+                
+        except Exception as e:
+            print("type error: " + str(e))
+            x=1
+            
+except Exception as e:
+    print("type error: " + str(e))
+    x=1
+
+df = pd.read_fwf('file path+name.extension', sep='|', index_col=0)
+
+#This part will be custom for you and files you need to clean
+#remove rows we don't need
+df=df.drop('+-------------------+---------------+')
+df=df.drop('| Material          |    Total Stock|')
+df=df.drop('Bin Status Report: Overview')
+df=df.drop('Warehouse Number 00C')
+df=df.drop(df.index[[len(df)-1, len(df)-2]])
+df=df.index.tolist()
+
+#Trim sides
+for i in range(len(df)):
+    df[i] = df[i].strip("|")
+    
+
+#List to DataFrame split in 2 columns
+df = pd.DataFrame (df, columns = ['Material | Stock'])
+df = df.iloc[:, 0].str.rsplit('|', 1, expand=True)
+df.columns = ['Material', 'Stock']    
+
+#remove white spaces
+df=df.stack().str.strip().unstack()
+
+print(df)
+
+
+#Sub Stock values > 0 with Yes
+for i in range(len(df)):
+    if df['Stock'][i] != '0.000':
+        df['Stock'][i] = 'yes'
+    else: df['Stock'][i] = 'no'
+print (df)
+
+#Convert to match "123806~~yes" format
+df=df['Material'] + "~~" + df['Stock']
+print(df)
+
+
+# Save to txt
+df.to_csv(f"output pah/file name.txt", index=False, header=False)
+
+print("All set! Output file saved to path\Output")
